@@ -784,6 +784,9 @@ func (a *APIBackend) SubscribeNewTxsEvent(ch chan<- core.NewTxsEvent) event.Subs
 // Filter API
 
 func (a *APIBackend) GetLogs(ctx context.Context, hash common.Hash, number uint64) ([][]*types.Log, error) {
+	if logs, ok := a.BlockChain().CachedLogs(hash); ok {
+		return logs, nil
+	}
 	return rawdb.ReadLogs(a.ChainDb(), hash, number), nil
 }
 

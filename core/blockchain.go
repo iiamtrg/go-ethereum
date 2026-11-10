@@ -404,6 +404,7 @@ type BlockChain struct {
 	bodyRLPCache  *lru.Cache[common.Hash, rlp.RawValue]
 	receiptsCache *lru.Cache[common.Hash, []*types.Receipt] // Receipts cache with all fields derived
 	blockCache    *lru.Cache[common.Hash, *types.Block]
+	logsCache     *lru.Cache[common.Hash, [][]*types.Log] // Arbitrum: written blocks' stored log fields, see cacheWrittenBlock
 
 	txLookupLock  sync.RWMutex
 	txLookupCache *lru.Cache[common.Hash, txLookup]
@@ -486,6 +487,7 @@ func NewBlockChain(db ethdb.Database, chainConfig *params.ChainConfig, genesis *
 		bodyRLPCache:       lru.NewCache[common.Hash, rlp.RawValue](bodyCacheLimit),
 		receiptsCache:      lru.NewCache[common.Hash, []*types.Receipt](receiptsCacheLimit),
 		blockCache:         lru.NewCache[common.Hash, *types.Block](blockCacheLimit),
+		logsCache:          lru.NewCache[common.Hash, [][]*types.Log](writtenLogsCacheLimit),
 		txLookupCache:      lru.NewCache[common.Hash, txLookup](txLookupCacheLimit),
 		engine:             engine,
 		logger:             cfg.VmConfig.Tracer,
@@ -1227,6 +1229,7 @@ func (bc *BlockChain) setHeadBeyondRoot(head uint64, time uint64, root common.Ha
 	bc.bodyRLPCache.Purge()
 	bc.receiptsCache.Purge()
 	bc.blockCache.Purge()
+	bc.logsCache.Purge()
 	bc.txLookupCache.Purge()
 
 	// Clear safe block, finalized block if needed
@@ -1961,6 +1964,10 @@ func (bc *BlockChain) writeBlockAndSetHead(block *types.Block, receipts []*types
 
 	// Set new head.
 	bc.writeHeadBlock(block)
+
+	// Arbitrum: before the head is announced, so a client reading the new block on its head event
+	// is served from memory rather than the database.
+	bc.cacheWrittenBlock(block, receipts)
 
 	bc.chainFeed.Send(ChainEvent{
 		Header:       block.Header(),

@@ -115,3 +115,56 @@ func (bc *BlockChain) RecoverState(ctx context.Context, block *types.Block) erro
 	_, err := bc.recoverAncestors(ctx, block, false)
 	return err
 }
+
+// writtenLogsCacheLimit keeps a written block's logs as long as the block and its body are kept, so
+// a reader that has fallen behind the head (a burst after a sequencer stall) is served all three
+// from memory, never the block from the cache and its logs from the database.
+const writtenLogsCacheLimit = blockCacheLimit
+
+// cacheWrittenBlock puts a block that has just been written and made head into the caches its
+// first readers go through, so they are served from memory instead of the database:
+//
+//   - the block itself (GetBlock, eth_getBlockByHash/Number). It is the executed object, whose
+//     transactions already hold their hashes and recovered senders, where a database read would
+//     decode the body again and recover every sender for full transaction objects;
+//   - its body (GetBody), which eth_getLogs reads to fill in the transaction hashes of matched logs;
+//   - its logs (CachedLogs, eth_getLogs).
+//
+// All three are keyed by block hash, whose content never changes, so a reorg cannot make an entry
+// wrong; SetHead purges them with the other caches.
+func (bc *BlockChain) cacheWrittenBlock(block *types.Block, receipts []*types.Receipt) {
+	hash := block.Hash()
+	bc.blockCache.Add(hash, block)
+	bc.bodyCache.Add(hash, block.Body())
+	logs := make([][]*types.Log, len(receipts))
+	for i, receipt := range receipts {
+		logs[i] = storedLogFields(receipt.Logs)
+	}
+	bc.logsCache.Add(hash, logs)
+}
+
+// CachedLogs returns a written block's logs as rawdb.ReadLogs would read them back: per
+// transaction, with only the stored fields (address, topics, data) set. Each call returns new Log
+// values, since callers fill in the derived fields in place. ok is false when the block is not
+// cached.
+func (bc *BlockChain) CachedLogs(hash common.Hash) (logs [][]*types.Log, ok bool) {
+	cached, ok := bc.logsCache.Get(hash)
+	if !ok {
+		return nil, false
+	}
+	logs = make([][]*types.Log, len(cached))
+	for i, txLogs := range cached {
+		logs[i] = storedLogFields(txLogs)
+	}
+	return logs, true
+}
+
+// storedLogFields copies the fields of each log that a receipt stores; the rest are derived on
+// read. Topics and data are shared, as neither the writer nor any reader changes them.
+func storedLogFields(logs []*types.Log) []*types.Log {
+	out := make([]*types.Log, len(logs))
+	for i, l := range logs {
+		out[i] = &types.Log{Address: l.Address, Topics: l.Topics, Data: l.Data}
+	}
+	return out
+}
