@@ -163,6 +163,9 @@ const (
 	BlocksSubscription
 	// TransactionReceiptsSubscription queries for transaction receipts when transactions are included in blocks
 	TransactionReceiptsSubscription
+	// BlockDataSubscription queries, per block appended to the chain, its header with the logs
+	// and transactions a BlockDataQuery selects
+	BlockDataSubscription
 	// LastIndexSubscription keeps track of the last index
 	LastIndexSubscription
 )
@@ -189,6 +192,8 @@ type subscription struct {
 	headers   chan *types.Header
 	receipts  chan []*ReceiptWithTx
 	txHashes  map[common.Hash]struct{} // contains transaction hashes for transactionReceipts subscription filtering
+	blockCrit *blockDataCrit           // what a blockData subscription selects
+	blockData chan *BlockData          // nil for every other subscription type
 	installed chan struct{}            // closed when the filter is installed
 	err       chan error               // closed when the filter is uninstalled
 }
@@ -276,6 +281,7 @@ func (sub *Subscription) Unsubscribe() {
 			case <-sub.f.txs:
 			case <-sub.f.headers:
 			case <-sub.f.receipts:
+			case <-sub.f.blockData: // nil, so never ready, for every other subscription type
 			}
 		}
 
@@ -425,6 +431,30 @@ func (es *EventSystem) SubscribeTransactionReceipts(txHashes []common.Hash, rece
 	return es.subscribe(sub)
 }
 
+// SubscribeBlockData creates a subscription that writes, for every block appended to the chain,
+// its header with the logs and transactions `query` selects.
+func (es *EventSystem) SubscribeBlockData(query BlockDataQuery, blocks chan *BlockData) (*Subscription, error) {
+	if limit := es.sys.cfg.LogQueryLimit; limit != 0 &&
+		(len(query.Topics) > limit || len(query.Addresses) > limit ||
+			len(query.Participants) > limit || len(query.TransactionsTo) > limit) {
+		return nil, errExceedLogQueryLimit
+	}
+	sub := &subscription{
+		id:        rpc.NewID(),
+		typ:       BlockDataSubscription,
+		created:   time.Now(),
+		logs:      make(chan []*types.Log),
+		txs:       make(chan []*types.Transaction),
+		headers:   make(chan *types.Header),
+		receipts:  make(chan []*ReceiptWithTx),
+		blockCrit: newBlockDataCrit(query),
+		blockData: blocks,
+		installed: make(chan struct{}),
+		err:       make(chan error),
+	}
+	return es.subscribe(sub), nil
+}
+
 type filterIndex map[Type]map[rpc.ID]*subscription
 
 func (es *EventSystem) handleLogs(filters filterIndex, ev []*types.Log) {
@@ -456,6 +486,10 @@ func (es *EventSystem) handleChainEvent(filters filterIndex, ev core.ChainEvent)
 		if len(matchedReceipts) > 0 {
 			f.receipts <- matchedReceipts
 		}
+	}
+
+	for _, f := range filters[BlockDataSubscription] {
+		f.blockData <- f.blockCrit.collect(ev)
 	}
 }
 

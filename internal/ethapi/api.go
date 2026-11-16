@@ -1194,6 +1194,23 @@ func RPCMarshalBlock(block *types.Block, inclTx bool, fullTx bool, config *param
 	return fields
 }
 
+// RPCMarshalArbitrumHeader is the header as eth_getBlockByHash serves it: RPCMarshalHeader plus the
+// Arbitrum fields (l1BlockNumber, sendRoot, sendCount) that a newHeads header leaves out.
+func RPCMarshalArbitrumHeader(head *types.Header, config *params.ChainConfig) map[string]interface{} {
+	fields := RPCMarshalHeader(head)
+	if config.IsArbitrumNitro(head.Number) {
+		fillArbitrumNitroHeaderInfo(head, fields)
+	}
+	return fields
+}
+
+// NewRPCTransactionInBlock is a transaction of the block `head` (whose hash is `blockHash`) at
+// `index`, as eth_getBlockByHash(hash, true) serves it.
+func NewRPCTransactionInBlock(tx *types.Transaction, head *types.Header, blockHash common.Hash, index uint64, config *params.ChainConfig) *RPCTransaction {
+	arbosVersion := types.DeserializeHeaderExtraInformation(head).ArbOSFormatVersion
+	return newRPCTransaction(tx, blockHash, head.Number.Uint64(), head.Time, index, head.BaseFee, config, arbosVersion)
+}
+
 func fillArbitrumNitroHeaderInfo(header *types.Header, fields map[string]interface{}) {
 	info := types.DeserializeHeaderExtraInformation(header)
 	fields["l1BlockNumber"] = hexutil.Uint64(info.L1BlockNumber)
