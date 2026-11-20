@@ -167,6 +167,7 @@ func New(diskdb ethdb.Database, config *Config, isUBT bool) *Database {
 	// Construct the layer tree by resolving the in-disk singleton state
 	// and in-memory layer journal.
 	db.tree = newLayerTree(db.loadLayers())
+	db.removeKeyValueJournal()
 
 	// Repair the history, which might not be aligned with the persistent
 	// state in the key-value store due to an unclean shutdown.

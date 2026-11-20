@@ -1047,3 +1047,58 @@ func TestDatabaseIndexRecovery(t *testing.T) {
 		}
 	}
 }
+
+// Arbitrum: a journal left in the key-value store by a node that kept it there is
+// loaded when the journal moves to a file, then removed from the store; the next
+// journal goes to the file and is loaded from it.
+func TestKeyValueJournalMovesToFile(t *testing.T) {
+	tester := newTester(t, &testerConfig{layers: 12, maxDiffLayers: 4})
+	defer tester.release()
+
+	if err := tester.db.Journal(tester.lastHash()); err != nil {
+		t.Fatalf("Failed to journal, err: %v", err)
+	}
+	if !rawdb.HasTrieJournal(tester.db.diskdb) {
+		t.Fatal("Journal not stored in the key-value store")
+	}
+	verify := func() {
+		t.Helper()
+		for i := tester.bottomIndex(); i < len(tester.roots); i++ {
+			if err := tester.verifyState(tester.roots[i]); err != nil {
+				t.Fatalf("Invalid state %d, err: %v", i, err)
+			}
+		}
+	}
+	// Reopening with the journal kept in the key-value store leaves it there.
+	tester.db.Close()
+	tester.db = New(tester.db.diskdb, tester.db.config, false)
+	verify()
+	if !rawdb.HasTrieJournal(tester.db.diskdb) {
+		t.Fatal("Journal removed while the key-value store keeps it")
+	}
+
+	if err := tester.db.Journal(tester.lastHash()); err != nil {
+		t.Fatalf("Failed to journal, err: %v", err)
+	}
+	tester.db.Close()
+	config := *tester.db.config
+	config.JournalDirectory = filepath.Join(t.TempDir(), "triedb")
+	tester.db = New(tester.db.diskdb, &config, false)
+	verify()
+	if rawdb.HasTrieJournal(tester.db.diskdb) {
+		t.Fatal("Journal left in the key-value store after loading it")
+	}
+
+	if err := tester.db.Journal(tester.lastHash()); err != nil {
+		t.Fatalf("Failed to journal, err: %v", err)
+	}
+	if rawdb.HasTrieJournal(tester.db.diskdb) {
+		t.Fatal("Journal written to the key-value store with a journal directory")
+	}
+	if !common.FileExist(filepath.Join(config.JournalDirectory, "merkle.journal")) {
+		t.Fatal("Journal file not written")
+	}
+	tester.db.Close()
+	tester.db = New(tester.db.diskdb, &config, false)
+	verify()
+}

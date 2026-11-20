@@ -158,6 +158,24 @@ func loadGenerator(db ethdb.KeyValueReader, hash nodeHasher) (*journalGenerator,
 	return &generator, trieRoot, nil
 }
 
+// Arbitrum: removeKeyValueJournal deletes a journal left in the key-value store once
+// the journal is kept in a file, after the layers have been loaded from it. A journal
+// is hundreds of megabytes and its key sits next to others read at runtime (the
+// transaction index tail): until a compaction rewrites the table holding it, every
+// read of those keys loads the journal's block. So the range is compacted as well.
+func (db *Database) removeKeyValueJournal() {
+	if db.journalPath() == "" || db.readOnly || !rawdb.HasTrieJournal(db.diskdb) {
+		return
+	}
+	start := time.Now()
+	rawdb.DeleteTrieJournal(db.diskdb)
+	if err := rawdb.CompactTrieJournal(db.diskdb); err != nil {
+		log.Warn("Failed to compact the removed key-value trie journal", "err", err)
+		return
+	}
+	log.Info("Removed the trie journal from the key-value store", "elapsed", common.PrettyDuration(time.Since(start)))
+}
+
 // loadLayers loads a pre-existing state layer backed by a key-value store.
 func (db *Database) loadLayers() layer {
 	// Retrieve the root node of persistent state.

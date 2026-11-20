@@ -150,6 +150,25 @@ func WriteTrieJournal(db ethdb.KeyValueWriter, journal []byte) {
 	}
 }
 
+// Arbitrum: HasTrieJournal reports whether a trie journal is stored in the database.
+func HasTrieJournal(db ethdb.KeyValueReader) bool {
+	has, _ := db.Has(trieJournalKey)
+	return has
+}
+
+// Arbitrum: DeleteTrieJournal removes the trie journal from the database.
+func DeleteTrieJournal(db ethdb.KeyValueWriter) {
+	if err := db.Delete(trieJournalKey); err != nil {
+		log.Crit("Failed to delete tries journal", "err", err)
+	}
+}
+
+// Arbitrum: CompactTrieJournal compacts the key range holding the trie journal, so a
+// deleted journal no longer sits in the block its neighbouring keys are read from.
+func CompactTrieJournal(db ethdb.Compacter) error {
+	return db.Compact(trieJournalKey, append(common.CopyBytes(trieJournalKey), 0))
+}
+
 // ReadStateHistoryMeta retrieves the metadata corresponding to the specified
 // state history. Compute the position of state history in freezer by minus
 // one since the id of first state history starts from one(zero for initial
