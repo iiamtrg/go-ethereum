@@ -500,6 +500,12 @@ func (bc *BlockChain) GetVMConfig() *vm.Config {
 	return &bc.cfg.VmConfig
 }
 
+// Arbitrum: JumpDestCache returns the JUMPDEST analysis cache shared by block
+// processing and prefetching, for blocks produced outside the state processor.
+func (bc *BlockChain) JumpDestCache() vm.JumpDestCache {
+	return bc.jumpDestCache
+}
+
 // Arbitrum: StatelessSelfValidation reports whether execution-witness self-validation
 // is enabled on the chain config.
 func (bc *BlockChain) StatelessSelfValidation() bool {
