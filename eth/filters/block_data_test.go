@@ -50,8 +50,9 @@ func bdLog(address common.Address, topics ...common.Hash) *types.Log {
 	return &types.Log{Address: address, Topics: topics}
 }
 
-// blockDataEvent is a block of four transactions: to the target, to another address, a contract
-// creation, and to the target again. It returns the logs and transaction indexes the query selects.
+// blockDataEvent is a block of five transactions: to the target, to another address, a contract
+// creation, to the target again, and a reverted one to the target (left out). It returns the logs
+// and transaction indexes the query selects.
 func blockDataEvent() (core.ChainEvent, []*types.Log, []uint64) {
 	other := common.HexToAddress("0x55")
 	selected := []*types.Log{
@@ -73,13 +74,21 @@ func blockDataEvent() (core.ChainEvent, []*types.Log, []uint64) {
 		}},
 		{},
 		{Logs: []*types.Log{selected[4]}},
+		{Status: types.ReceiptStatusFailed},
+	}
+	for _, i := range []int{0, 1, 2, 3} {
+		receipts[i].Status = types.ReceiptStatusSuccessful
 	}
 	tx := func(nonce uint64, to *common.Address) *types.Transaction {
 		return types.NewTx(&types.LegacyTx{Nonce: nonce, GasPrice: big.NewInt(1), Gas: 21000, To: to})
 	}
-	txs := []*types.Transaction{tx(0, &bdTarget), tx(1, &other), tx(2, nil), tx(3, &bdTarget)}
+	txs := []*types.Transaction{
+		tx(0, &bdTarget), tx(1, &other), tx(2, nil), tx(3, &bdTarget),
+		tx(4, &bdTarget),
+	}
 	header := &types.Header{Number: big.NewInt(5), Difficulty: big.NewInt(1), BaseFee: big.NewInt(1)}
-	return core.ChainEvent{Header: header, Receipts: receipts, Transactions: txs}, selected, []uint64{0, 3}
+	return core.ChainEvent{Header: header, Receipts: receipts, Transactions: txs}, selected,
+		[]uint64{0, 3}
 }
 
 // A blockData subscription delivers the event's header, the logs any criterion selects, once each

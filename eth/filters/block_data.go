@@ -38,8 +38,9 @@ type BlockDataQuery struct {
 	// Participants selects a log whose topic 0 is a participant's topic and whose topic 1 or
 	// topic 2 is that participant's address, left-padded to 32 bytes.
 	Participants []BlockDataParticipant `json:"participants"`
-	// TransactionsTo selects every transaction sent to one of these addresses, as
-	// eth_getBlockByHash(hash, true) serves it.
+	// TransactionsTo selects every transaction sent to one of these addresses that succeeded
+	// (receipt status 1), as eth_getBlockByHash(hash, true) serves it. A reverted transaction wrote
+	// nothing, so it is left out: a transaction pushed is one whose writes happened.
 	TransactionsTo []common.Address `json:"transactionsTo"`
 }
 
@@ -125,7 +126,7 @@ func (c *blockDataCrit) collect(ev core.ChainEvent) *BlockData {
 	}
 	if len(c.txTo) > 0 {
 		for i, tx := range ev.Transactions {
-			if to := tx.To(); to != nil {
+			if to := tx.To(); to != nil && ev.Receipts[i].Status == types.ReceiptStatusSuccessful {
 				if _, ok := c.txTo[*to]; ok {
 					b.Transactions = append(b.Transactions, tx)
 					b.TxIndexes = append(b.TxIndexes, uint64(i))
