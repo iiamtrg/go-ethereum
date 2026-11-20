@@ -718,7 +718,11 @@ func (a *APIBackend) GetEVM(ctx context.Context, state *state.StateDB, header *t
 	} else {
 		context = core.NewEVMBlockContext(header, a.BlockChain(), nil)
 	}
-	return vm.NewEVM(context, state, a.BlockChain().Config(), *vmConfig)
+	evm := vm.NewEVM(context, state, a.BlockChain().Config(), *vmConfig)
+	// Calls reuse the JUMPDEST analyses block processing keeps. An analysis is keyed by
+	// the hash of the code it was made from, so a state override of code is analysed anew.
+	evm.SetJumpDestCache(a.BlockChain().JumpDestCache())
+	return evm
 }
 
 func (a *APIBackend) SubscribeChainEvent(ch chan<- core.ChainEvent) event.Subscription {
